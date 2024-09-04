@@ -56,6 +56,7 @@ var intent = await kernel.InvokeAsync<string>(
 
 Console.WriteLine(intent);
 
+//use switch case to  to choose plugin
 switch (intent) {
     case "ConvertCurrency": 
         var currencyText = await kernel.InvokeAsync<string>(
