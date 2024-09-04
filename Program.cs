@@ -56,6 +56,12 @@ var intent = await kernel.InvokeAsync<string>(
 
 Console.WriteLine(intent);
 
+// set automatic function calling
+OpenAIPromptExecutionSettings settings = new()
+{
+    ToolCallBehavior = ToolCallBehavior.AutoInvokeKernelFunctions
+};
+
 //use switch case to  to choose plugin
 switch (intent) {
     case "ConvertCurrency": 
@@ -74,7 +80,17 @@ switch (intent) {
         );
         Console.WriteLine(result);
         break;
-    default:
-        Console.WriteLine("Other intent detected");
+    case "SuggestDestinations":
+    case "SuggestActivities":
+    case "HelpfulPhrases":
+    case "Translate":
+        var autoInvokeResult = await kernel.InvokePromptAsync(input!, new(settings));
+        Console.WriteLine(autoInvokeResult);
         break;
+    default:
+        Console.WriteLine("Sure, I can help with that.");
+        var otherIntentResult = await kernel.InvokePromptAsync(input!, new(settings));
+        Console.WriteLine(otherIntentResult);
+        break;
+
 }
