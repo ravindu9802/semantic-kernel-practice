@@ -3,33 +3,34 @@ using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
 using Microsoft.SemanticKernel.Connectors.OpenAI;
 using Microsoft.SemanticKernel.Plugins.Core;
-#pragma warning disable SKEXP0050 
+#pragma warning disable SKEXP0050
 #pragma warning disable SKEXP0060
 
-string yourDeploymentName = "gpt-35-turbo-16k";
-string yourEndpoint = "https://oasys-openai-dev-beta.openai.azure.com/";
-string yourApiKey = "e3768a2badd446158f7129fdf536666c";
+string yourDeploymentName = "";
+string yourEndpoint = "";
+string yourApiKey = "";
 
 var builder = Kernel.CreateBuilder();
 builder.Services.AddAzureOpenAIChatCompletion(
     yourDeploymentName,
     yourEndpoint,
     yourApiKey,
-    "gpt-35-turbo-16k");
+    "gpt-35-turbo-16k"
+);
 var kernel = builder.Build();
 
 // Note: ChatHistory isn't working correctly as of SemanticKernel v 1.4.0
-// StringBuilder chatHistory = new();
+StringBuilder chatHistory = new();
 
 kernel.ImportPluginFromType<CurrencyConverter>();
 kernel.ImportPluginFromType<ConversationSummaryPlugin>();
 var prompts = kernel.ImportPluginFromPromptDirectory("Prompts");
 
-// var result = await kernel.InvokeAsync("CurrencyConverter", 
-//     "ConvertAmount", 
+// var result = await kernel.InvokeAsync("CurrencyConverter",
+//     "ConvertAmount",
 //     new() {
-//         {"targetCurrencyCode", "USD"}, 
-//         {"amount", "52000"}, 
+//         {"targetCurrencyCode", "USD"},
+//         {"amount", "52000"},
 //         {"baseCurrencyCode", "VND"}
 //     }
 // );
@@ -46,51 +47,91 @@ var prompts = kernel.ImportPluginFromPromptDirectory("Prompts");
 // Console.WriteLine(result);
 
 
-Console.WriteLine("What would you like to do?");
-var input = Console.ReadLine();
+// Console.WriteLine("What would you like to do?");
+// var input = Console.ReadLine();
+// string input;
 
-var intent = await kernel.InvokeAsync<string>(
-    prompts["GetIntent"], 
-    new() {{ "input",  input }}
-);
 
-Console.WriteLine(intent);
 
 // set automatic function calling
-OpenAIPromptExecutionSettings settings = new()
+OpenAIPromptExecutionSettings settings =
+    new() { ToolCallBehavior = ToolCallBehavior.AutoInvokeKernelFunctions };
+
+string input;
+
+do
 {
-    ToolCallBehavior = ToolCallBehavior.AutoInvokeKernelFunctions
-};
+    Console.WriteLine("What would you like to do?");
+    input = Console.ReadLine();
 
-//use switch case to  to choose plugin
-switch (intent) {
-    case "ConvertCurrency": 
-        var currencyText = await kernel.InvokeAsync<string>(
-            prompts["GetTargetCurrencies"], 
-            new() {{ "input",  input }}
-        );
-        var currencyInfo = currencyText!.Split("|");
-        var result = await kernel.InvokeAsync("CurrencyConverter", 
-            "ConvertAmount", 
-            new() {
-                {"targetCurrencyCode", currencyInfo[0]}, 
-                {"baseCurrencyCode", currencyInfo[1]},
-                {"amount", currencyInfo[2]}, 
-            }
-        );
-        Console.WriteLine(result);
-        break;
-    case "SuggestDestinations":
-    case "SuggestActivities":
-    case "HelpfulPhrases":
-    case "Translate":
-        var autoInvokeResult = await kernel.InvokePromptAsync(input!, new(settings));
-        Console.WriteLine(autoInvokeResult);
-        break;
-    default:
-        Console.WriteLine("Sure, I can help with that.");
-        var otherIntentResult = await kernel.InvokePromptAsync(input!, new(settings));
-        Console.WriteLine(otherIntentResult);
-        break;
+    var intent = await kernel.InvokeAsync<string>(
+        prompts["GetIntent"],
+        new() { { "input", input } }
+    );
 
-}
+    Console.WriteLine($"intent {intent}");
+
+    //use switch case to  to choose plugin
+    switch (intent)
+    {
+        case "ConvertCurrency":
+            var currencyText = await kernel.InvokeAsync<string>(
+                prompts["GetTargetCurrencies"],
+                new() { { "input", input } }
+            );
+            var currencyInfo = currencyText!.Split("|");
+            var result = await kernel.InvokeAsync(
+                "CurrencyConverter",
+                "ConvertAmount",
+                new()
+                {
+                    { "targetCurrencyCode", currencyInfo[0] },
+                    { "baseCurrencyCode", currencyInfo[1] },
+                    { "amount", currencyInfo[2] },
+                }
+            );
+            Console.WriteLine(result);
+            break;
+
+        case "SuggestDestinations":
+            chatHistory.AppendLine("User:" + input);
+            var recommendations = await kernel.InvokePromptAsync(input!);
+            Console.WriteLine(recommendations);
+            break;
+
+        case "SuggestActivities":
+            // get a summary of the chat history
+            var chatSummary = await kernel.InvokeAsync(
+                "ConversationSummaryPlugin",
+                "SummarizeConversation",
+                new() { { "input", chatHistory.ToString() } }
+            );
+
+            var activities = await kernel.InvokePromptAsync(
+                input!,
+                new()
+                {
+                    { "input", input },
+                    { "history", chatSummary },
+                    { "ToolCallBehavior", ToolCallBehavior.AutoInvokeKernelFunctions },
+                }
+            );
+
+            chatHistory.AppendLine("User:" + input);
+            chatHistory.AppendLine("Assistant:" + activities.ToString());
+            Console.WriteLine(activities);
+            break;
+
+        case "HelpfulPhrases":
+        case "Translate":
+            var autoInvokeResult = await kernel.InvokePromptAsync(input!, new(settings));
+            Console.WriteLine(autoInvokeResult);
+            break;
+
+        default:
+            Console.WriteLine("Sure, I can help with that.");
+            var otherIntentResult = await kernel.InvokePromptAsync(input!, new(settings));
+            Console.WriteLine(otherIntentResult);
+            break;
+    }
+} while (!string.IsNullOrWhiteSpace(input));
